@@ -118,6 +118,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
   Enables reqwest with RusTLS support
 * **reqwest-client-11-rustls** -
   Enables reqwest 0.11 with RusTLS support
+* **reqwest-client-13** -
+  Enables reqwest 0.13 with RusTLS support
 * **strict** -
   Turn unexpected fields in API responses into errors
 */

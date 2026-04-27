@@ -1,6 +1,6 @@
 # Unleash API client for Rustlang
 
-[Unleash](https://docs.getunleash.io) is a private, secure, and scalable [feature management platform](https://www.getunleash.io/) built to reduce the risk of releasing new features and accelerate software development. This Rust SDK is designed to help you integrate with Unleash and evaluate feature flags in Rust programs.
+[Unleash](https://docs.getunleash.io) is a private, secure, and scalable [feature management platform](https://www.getunleash.io/) built to reduce the risk of releasing new features and accelerate software development. This Rust SDK is designed to help you integrate with Unleash and evaluate feature flags in Rust programs.
 
 You can use this client with [Unleash Enterprise](https://www.getunleash.io/pricing?utm_source=readme&utm_medium=rust) or [Unleash Open Source](https://github.com/Unleash/unleash).
 
@@ -11,8 +11,8 @@ surf or reqwest support is built in, or any async HTTP client can be provided by
 the user if they implement the thin trait used to abstract over the actual
 client.
 
-Examples with async-std (feature 'surf-client') and tokio (feature
-'reqwest-client') are in the examples/ in the source tree. See the API docs for
+Examples with async-std (feature `surf-client`) and tokio (feature
+`reqwest-client`) are in the examples/ in the source tree. See the API docs for
 more feature information.
 
 To use it in a sync program, run an async executor and `block_on()` the relevant
