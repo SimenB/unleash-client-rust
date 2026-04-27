@@ -180,6 +180,8 @@ pub mod prelude {
             pub use reqwest::Client as DefaultClient;
         } else if #[cfg(feature = "reqwest-11")] {
             pub use reqwest_11::Client as DefaultClient;
+        } else if #[cfg(feature = "reqwest-13")] {
+            pub use reqwest_13::Client as DefaultClient;
         }
     }
 }
