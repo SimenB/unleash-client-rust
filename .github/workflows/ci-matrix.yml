@@ -36,6 +36,25 @@ jobs:
           command: test
           args: -p unleash-api-client --no-default-features --features async-std,strict,${{ matrix.features }}
 
+  macro-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.95.0
+          override: true
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p unleash-api-client-macros
+
   clippy:
     runs-on: ubuntu-latest
     strategy:
@@ -76,6 +95,11 @@ jobs:
           command: clippy
           args: -p unleash-api-client --features strict,async-std,reqwest-client,reqwest-client-rustls,reqwest-client-11,reqwest-client-11-rustls --all-targets -- -D warnings
 
+      - uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -p unleash-api-client-macros --all-targets -- -D warnings
+
   msrv:
     runs-on: ubuntu-latest
     strategy:
@@ -101,3 +125,8 @@ jobs:
         with:
           command: build
           args: --release --no-default-features
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p unleash-api-client-macros --release
