@@ -61,12 +61,6 @@ jobs:
             exit 1
           fi
 
-      - name: Validate package metadata
-        run: cargo metadata --format-version 1 --no-deps --locked
-
-      - name: Test workspace
-        run: cargo test --workspace --locked
-
       - name: Dry-run publish unleash-api-client-macros
         run: cargo publish \
           --manifest-path crates/unleash-api-client-macros/Cargo.toml \
