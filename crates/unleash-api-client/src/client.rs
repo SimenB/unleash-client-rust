@@ -12,13 +12,13 @@ use arc_swap::ArcSwapOption;
 use chrono::Utc;
 use futures_timer::Delay;
 use log::{debug, trace, warn};
-use unleash_types::client_features::ClientFeatures as YggdrasilClientFeatures;
+use unleash_types::client_features::ClientFeatures;
 
 use unleash_yggdrasil::state::{EnrichedContext, ExternalResultsRef, PropertiesRef};
 use unleash_yggdrasil::{EngineState, UpdateMessage};
 use uuid::Uuid;
 
-use crate::api::{Features, Metrics, MetricsBucket, Registration, ToggleMetrics};
+use crate::api::{features_endpoint, Metrics, MetricsBucket, Registration, ToggleMetrics};
 use crate::context::Context;
 use crate::http::{Http, TransportRef};
 use crate::strategy;
@@ -410,7 +410,7 @@ where
     /// poll_for_updates is the usual way in which memoize will be called.
     pub fn memoize(
         &self,
-        client_features: YggdrasilClientFeatures,
+        client_features: ClientFeatures,
     ) -> Result<Option<Metrics>, Box<dyn std::error::Error + Send + Sync>> {
         self.memoize_update_message(UpdateMessage::FullResponse(client_features))
     }
@@ -506,7 +506,7 @@ where
     /// stop_poll is called().
     pub async fn poll_for_updates(&self) {
         // TODO: add an event / pipe to permit immediate exit.
-        let endpoint = Features::endpoint(&self.api_url);
+        let endpoint = features_endpoint(&self.api_url);
         let metrics_endpoint = Metrics::endpoint(&self.api_url);
         self.polling.store(true, Ordering::Relaxed);
         loop {
@@ -616,20 +616,13 @@ mod tests {
     use unleash_yggdrasil::{EngineState, UpdateMessage};
 
     use super::{ClientBuilder, Variant};
-    use crate::api::{self, Feature, Features, Strategy};
     use crate::client::FeatureKey;
     use crate::context::{Context, IPAddress};
     use crate::strategy;
 
-    use crate::api::ConstraintExpression;
-
     use unleash_types::client_features::{
-        ClientFeature, Constraint as YggdrasilConstraint, Operator as YggdrasilOperator,
-        Override as YggdrasilOverride, Payload as YggdrasilPayload, Strategy as YggdrasilStrategy,
-        Variant as YggdrasilVariant,
+        ClientFeature, ClientFeatures, Payload, Strategy, Variant as YggdrasilVariant,
     };
-
-    use unleash_types::client_features::ClientFeatures as YggdrasilClientFeatures;
 
     #[derive(Default)]
     struct TestTransport;
@@ -647,71 +640,65 @@ mod tests {
         }
     }
 
-    fn features() -> Features {
-        Features {
+    fn strategy(name: &str, parameters: Option<HashMap<String, String>>) -> Strategy {
+        Strategy {
+            name: name.into(),
+            sort_order: None,
+            segments: None,
+            constraints: None,
+            parameters,
+            variants: None,
+        }
+    }
+
+    fn feature(
+        name: &str,
+        enabled: bool,
+        strategies: Vec<Strategy>,
+        variants: Option<Vec<YggdrasilVariant>>,
+    ) -> ClientFeature {
+        ClientFeature {
+            name: name.into(),
+            description: Some(name.to_string()),
+            enabled,
+            strategies: Some(strategies),
+            variants,
+            ..Default::default()
+        }
+    }
+
+    fn features() -> ClientFeatures {
+        ClientFeatures {
             version: 1,
             features: vec![
-                Feature {
-                    description: Some("default".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "default".into(),
-                    strategies: vec![Strategy {
-                        name: "default".into(),
-                        ..Default::default()
-                    }],
-                },
-                Feature {
-                    description: Some("userWithId".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "userWithId".into(),
-                    strategies: vec![Strategy {
-                        name: "userWithId".into(),
-                        parameters: Some(hashmap!["userIds".into()=>"present".into()]),
-                        ..Default::default()
-                    }],
-                },
-                Feature {
-                    description: Some("userWithId+default".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "userWithId+default".into(),
-                    strategies: vec![
-                        Strategy {
-                            name: "userWithId".into(),
-                            parameters: Some(hashmap!["userIds".into()=>"present".into()]),
-                            ..Default::default()
-                        },
-                        Strategy {
-                            name: "default".into(),
-                            ..Default::default()
-                        },
+                feature("default", true, vec![strategy("default", None)], None),
+                feature(
+                    "userWithId",
+                    true,
+                    vec![strategy(
+                        "userWithId",
+                        Some(hashmap!["userIds".into()=>"present".into()]),
+                    )],
+                    None,
+                ),
+                feature(
+                    "userWithId+default",
+                    true,
+                    vec![
+                        strategy(
+                            "userWithId",
+                            Some(hashmap!["userIds".into()=>"present".into()]),
+                        ),
+                        strategy("default", None),
                     ],
-                },
-                Feature {
-                    description: Some("disabled".to_string()),
-                    enabled: false,
-                    created_at: None,
-                    variants: None,
-                    name: "disabled".into(),
-                    strategies: vec![Strategy {
-                        name: "default".into(),
-                        ..Default::default()
-                    }],
-                },
-                Feature {
-                    description: Some("nostrategies".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "nostrategies".into(),
-                    strategies: vec![],
-                },
+                    None,
+                ),
+                feature("disabled", false, vec![strategy("default", None)], None),
+                feature("nostrategies", true, vec![], None),
             ],
+            segments: None,
+            query: None,
+            meta: None,
         }
     }
 
@@ -758,7 +745,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
         let present: Context = Context {
             user_id: Some("present".into()),
             ..Default::default()
@@ -814,7 +801,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
         let present: Context = Context {
             user_id: Some("present".into()),
             ..Default::default()
@@ -895,35 +882,25 @@ mod tests {
             )
             .unwrap();
 
-        let f = Features {
+        let f = ClientFeatures {
             version: 1,
             features: vec![
-                Feature {
-                    description: Some("default".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "default".into(),
-                    strategies: vec![Strategy {
-                        name: "default".into(),
-                        ..Default::default()
-                    }],
-                },
-                Feature {
-                    description: Some("reversed".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "reversed".into(),
-                    strategies: vec![Strategy {
-                        name: "reversed".into(),
-                        parameters: Some(hashmap!["userIds".into()=>"abc".into()]),
-                        ..Default::default()
-                    }],
-                },
+                feature("default", true, vec![strategy("default", None)], None),
+                feature(
+                    "reversed",
+                    true,
+                    vec![strategy(
+                        "reversed",
+                        Some(hashmap!["userIds".into()=>"abc".into()]),
+                    )],
+                    None,
+                ),
             ],
+            segments: None,
+            query: None,
+            meta: None,
         };
-        client.memoize(api_features_to_yggdrasil(f)).unwrap();
+        client.memoize(f).unwrap();
         let present: Context = Context {
             user_id: Some("cba".into()),
             ..Default::default()
@@ -941,78 +918,46 @@ mod tests {
         assert!(client.is_enabled(UserFeatures::default, None, false));
     }
 
-    fn variant_features() -> Features {
-        Features {
+    fn variant(name: &str, weight: i32, payload_type: &str, value: &str) -> YggdrasilVariant {
+        YggdrasilVariant {
+            name: name.into(),
+            weight,
+            weight_type: None,
+            stickiness: None,
+            payload: Some(Payload {
+                payload_type: payload_type.into(),
+                value: value.into(),
+            }),
+            overrides: None,
+        }
+    }
+
+    fn variant_features() -> ClientFeatures {
+        ClientFeatures {
             version: 1,
             features: vec![
-                Feature {
-                    description: Some("disabled".to_string()),
-                    enabled: false,
-                    created_at: None,
-                    variants: None,
-                    name: "disabled".into(),
-                    strategies: vec![],
-                },
-                Feature {
-                    description: Some("novariants".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "novariants".into(),
-                    strategies: vec![Strategy {
-                        name: "default".into(),
-                        ..Default::default()
-                    }],
-                },
-                Feature {
-                    description: Some("one".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: Some(vec![api::Variant {
-                        name: "variantone".into(),
-                        weight: 100,
-                        payload: Some(hashmap![
-                            "type".into() => "string".into(),
-                            "value".into() => "val1".into()]),
-                        overrides: None,
-                    }]),
-                    name: "one".into(),
-                    strategies: vec![],
-                },
-                Feature {
-                    description: Some("two".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: Some(vec![
-                        api::Variant {
-                            name: "variantone".into(),
-                            weight: 50,
-                            payload: Some(hashmap![
-                            "type".into() => "string".into(),
-                            "value".into() => "val1".into()]),
-                            overrides: None,
-                        },
-                        api::Variant {
-                            name: "varianttwo".into(),
-                            weight: 50,
-                            payload: Some(hashmap![
-                            "type".into() => "string".into(),
-                            "value".into() => "val2".into()]),
-                            overrides: None,
-                        },
+                feature("disabled", false, vec![], None),
+                feature("novariants", true, vec![strategy("default", None)], None),
+                feature(
+                    "one",
+                    true,
+                    vec![],
+                    Some(vec![variant("variantone", 100, "string", "val1")]),
+                ),
+                feature(
+                    "two",
+                    true,
+                    vec![],
+                    Some(vec![
+                        variant("variantone", 50, "string", "val1"),
+                        variant("varianttwo", 50, "string", "val2"),
                     ]),
-                    name: "two".into(),
-                    strategies: vec![],
-                },
-                Feature {
-                    description: Some("nostrategies".to_string()),
-                    enabled: true,
-                    created_at: None,
-                    variants: None,
-                    name: "nostrategies".into(),
-                    strategies: vec![],
-                },
+                ),
+                feature("nostrategies", true, vec![], None),
             ],
+            segments: None,
+            query: None,
+            meta: None,
         }
     }
 
@@ -1056,7 +1001,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
 
         // disabled should be disabled
         let variant = Variant::disabled();
@@ -1142,7 +1087,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
 
         // disabled should be disabled
         let variant = Variant::disabled();
@@ -1232,7 +1177,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
 
         c.get_variant(UserFeatures::disabled, &Context::default());
         c.get_variant(UserFeatures::novariants, &Context::default());
@@ -1249,10 +1194,7 @@ mod tests {
         c.get_variant(UserFeatures::two, &session1);
         c.get_variant(UserFeatures::two, &host1);
 
-        let metrics = c
-            .memoize(api_features_to_yggdrasil(variant_features()))
-            .unwrap()
-            .unwrap();
+        let metrics = c.memoize(variant_features()).unwrap().unwrap();
         let variant_count = |feature_name, variant_name| -> u64 {
             metrics
                 .bucket
@@ -1304,7 +1246,7 @@ mod tests {
             )
             .unwrap();
 
-        c.memoize(api_features_to_yggdrasil(f)).unwrap();
+        c.memoize(f).unwrap();
 
         c.get_variant_str("disabled", &Context::default());
         c.get_variant_str("novariants", &Context::default());
@@ -1325,10 +1267,7 @@ mod tests {
         c.get_variant_str("nonexistent-feature", &Context::default());
         c.get_variant_str("nonexistent-feature", &Context::default());
 
-        let metrics = c
-            .memoize(api_features_to_yggdrasil(variant_features()))
-            .unwrap()
-            .unwrap();
+        let metrics = c.memoize(variant_features()).unwrap().unwrap();
         let variant_count = |feature_name, variant_name| -> u64 {
             metrics
                 .bucket
@@ -1354,7 +1293,7 @@ mod tests {
 
     #[test]
     fn yggdrasil_usage() {
-        let client_features = YggdrasilClientFeatures {
+        let client_features = ClientFeatures {
             ..Default::default()
         };
 
@@ -1378,153 +1317,5 @@ mod tests {
 
         engine.count_toggle("test", true);
         engine.count_variant("test", "variantone");
-    }
-
-    fn api_constraint_to_yggdrasil(constraint: api::Constraint) -> Option<YggdrasilConstraint> {
-        let (operator, values, value) = match constraint.expression {
-            ConstraintExpression::DateAfter { value } => {
-                (YggdrasilOperator::DateAfter, None, Some(value.to_rfc3339()))
-            }
-            ConstraintExpression::DateBefore { value } => (
-                YggdrasilOperator::DateBefore,
-                None,
-                Some(value.to_rfc3339()),
-            ),
-            ConstraintExpression::In { values } => (YggdrasilOperator::In, Some(values), None),
-            ConstraintExpression::NotIn { values } => {
-                (YggdrasilOperator::NotIn, Some(values), None)
-            }
-            ConstraintExpression::NumEq { value } => {
-                (YggdrasilOperator::NumEq, None, Some(value.to_string()))
-            }
-            ConstraintExpression::NumGT { value } => {
-                (YggdrasilOperator::NumGt, None, Some(value.to_string()))
-            }
-            ConstraintExpression::NumGTE { value } => {
-                (YggdrasilOperator::NumGte, None, Some(value.to_string()))
-            }
-            ConstraintExpression::NumLT { value } => {
-                (YggdrasilOperator::NumLt, None, Some(value.to_string()))
-            }
-            ConstraintExpression::NumLTE { value } => {
-                (YggdrasilOperator::NumLte, None, Some(value.to_string()))
-            }
-            ConstraintExpression::SemverEq { value } => {
-                (YggdrasilOperator::SemverEq, None, Some(value.to_string()))
-            }
-            ConstraintExpression::SemverGT { value } => {
-                (YggdrasilOperator::SemverGt, None, Some(value.to_string()))
-            }
-            ConstraintExpression::SemverLT { value } => {
-                (YggdrasilOperator::SemverLt, None, Some(value.to_string()))
-            }
-            ConstraintExpression::StrContains { values } => {
-                (YggdrasilOperator::StrContains, Some(values), None)
-            }
-            ConstraintExpression::StrStartsWith { values } => {
-                (YggdrasilOperator::StrStartsWith, Some(values), None)
-            }
-            ConstraintExpression::StrEndsWith { values } => {
-                (YggdrasilOperator::StrEndsWith, Some(values), None)
-            }
-            ConstraintExpression::Unknown(_) => (YggdrasilOperator::In, Some(Vec::new()), None),
-        };
-        Some(YggdrasilConstraint {
-            context_name: constraint.context_name,
-            operator,
-            case_insensitive: constraint.case_insensitive,
-            inverted: constraint.inverted,
-            values,
-            value,
-        })
-    }
-
-    fn api_strategy_to_yggdrasil(strategy: api::Strategy) -> YggdrasilStrategy {
-        YggdrasilStrategy {
-            name: strategy.name,
-            sort_order: None,
-            segments: None,
-            constraints: strategy
-                .constraints
-                .map(|constraints| {
-                    constraints
-                        .into_iter()
-                        .filter_map(api_constraint_to_yggdrasil)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|constraints| !constraints.is_empty()),
-            parameters: strategy.parameters,
-            variants: None,
-        }
-    }
-
-    fn api_variant_to_yggdrasil(variant: api::Variant) -> YggdrasilVariant {
-        let payload = variant.payload.and_then(|payload| {
-            let payload_type = payload.get("type").cloned();
-            let value = payload.get("value").cloned();
-            match (payload_type, value) {
-                (Some(payload_type), Some(value)) => Some(YggdrasilPayload {
-                    payload_type,
-                    value,
-                }),
-                _ => None,
-            }
-        });
-
-        YggdrasilVariant {
-            name: variant.name,
-            weight: i32::from(variant.weight),
-            weight_type: None,
-            stickiness: None,
-            payload,
-            overrides: variant.overrides.map(|overrides| {
-                overrides
-                    .into_iter()
-                    .map(|override_value| YggdrasilOverride {
-                        context_name: override_value.context_name,
-                        values: override_value.values,
-                    })
-                    .collect()
-            }),
-        }
-    }
-
-    fn client_feature_to_yggdrasil(feature: Feature) -> ClientFeature {
-        ClientFeature {
-            name: feature.name,
-            feature_type: None,
-            description: feature.description,
-            created_at: feature.created_at,
-            last_seen_at: None,
-            enabled: feature.enabled,
-            stale: None,
-            impression_data: None,
-            project: None,
-            strategies: Some(
-                feature
-                    .strategies
-                    .into_iter()
-                    .map(api_strategy_to_yggdrasil)
-                    .collect(),
-            ),
-            variants: feature
-                .variants
-                .map(|variants| variants.into_iter().map(api_variant_to_yggdrasil).collect()),
-            dependencies: None,
-        }
-    }
-
-    fn api_features_to_yggdrasil(features: Features) -> YggdrasilClientFeatures {
-        YggdrasilClientFeatures {
-            version: features.version.into(),
-            features: features
-                .features
-                .into_iter()
-                .map(client_feature_to_yggdrasil)
-                .collect(),
-            segments: None,
-            query: None,
-            meta: None,
-        }
     }
 }
